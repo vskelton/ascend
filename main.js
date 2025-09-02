@@ -1,115 +1,162 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-import { getFirestore, doc, addDoc, deleteDoc, onSnapshot, collection } from  "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+import { getFirestore, doc, addDoc, deleteDoc, onSnapshot, collection, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-// Global variables provided by the Canvas environment
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+const firebaseConfig = {
+  apiKey: "AIzaSyB1f-z76NdvB2XyVmO4aBMvnaxNBW4bJek",
+  authDomain: "ascend-workout-logger.firebaseapp.com",
+  projectId: "ascend-workout-logger",
+  storageBucket: "ascend-workout-logger.firebasestorage.app",
+  messagingSenderId: "750821235184",
+  appId: "1:750821235184:web:65a466723dc31847bfe535",
+  measurementId: "G-CX6L6NP0TX"
+};
 
-//UI elements
+const appId = firebaseConfig.appId;
+
+// UI elements
 const authInfoEl = document.getElementById('auth-info');
+const userIdDisplayEl = document.getElementById('user-id-display');
+const messageBox = document.getElementById('message-box');
+const authContainer = document.getElementById('auth-container');
+const appContainer = document.getElementById('app-container');
+const authEmailInput = document.getElementById('auth-email');
+const authPasswordInput = document.getElementById('auth-password');
+const signInBtn = document.getElementById('sign-in-btn');
+const createAccountBtn = document.getElementById('create-account-btn');
+const signOutBtn = document.getElementById('sign-out-btn');
 const workoutForm = document.getElementById('workout-form');
 const workoutsList = document.getElementById('workouts-list');
-const loadingSpinner = document.getElementById('load-spinner');
 
-//Firebase instances
+// Firebase instances
 let app, auth, db, userId;
 
 /**
- * Initializes Firebase and authenticates the user
+ * Displays a message in the message box.
+ * @param {string} message - The message to display.
+ * @param {string} type - The type of message ('success' or 'error').
+ */
+const showMessage = (message, type) => {
+    messageBox.textContent = message;
+    messageBox.classList.remove('hidden', 'bg-green-500', 'bg-red-500');
+    if (type === 'success') {
+        messageBox.classList.add('bg-green-500');
+    } else {
+        messageBox.classList.add('bg-red-500');
+    }
+    messageBox.classList.add('block');
+    setTimeout(() => {
+      messageBox.classList.remove('block');
+        messageBox.classList.add('hidden');
+    }, 5000);
+};
+
+/**
+ * Updates the UI based on the user's authentication state.
+ * @param {object} user - The Firebase user object.
+ */
+const updateUI = (user) => {
+    if (user) {
+        // User is signed in. Hide auth UI, show app UI.
+        userId = user.uid;
+        authInfoEl.textContent = `Signed in as: ${user.email || 'Anonymous'}`;
+        userIdDisplayEl.textContent = `User ID: ${userId}`;
+        userIdDisplayEl.classList.remove('hidden');
+        authContainer.classList.add('hidden');
+        appContainer.classList.remove('hidden');
+        signOutBtn.classList.remove('hidden');
+        setupRealtimeListener();
+    } else {
+        // User is signed out. Hide app UI, show auth UI.
+        authInfoEl.textContent = 'Please sign in or create an account.';
+        userIdDisplayEl.classList.add('hidden');
+        authContainer.classList.remove('hidden');
+        appContainer.classList.add('hidden');
+        signOutBtn.classList.add('hidden');
+        workoutsList.innerHTML = '';
+    }
+};
+
+/**
+ * Initializes Firebase and authenticates the user.
  */
 const initializeFirebase = async () => {
-  try {
-    //Check if firebaseConfig is valid before initializing
-    if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
-      console.error("Error: Firebase configuration is missing or invalid.");
-      authInfoEl.textContent = 'Error: Firebase configuration is missing. Please check your environment.';
-      return;
-    }
-    
-    //Initialize Firebase
-    app = initializeApp(firebaseConfig);
-    auth = getAuth(app);
-    db = getFirestore(app);
+    try {
+          app = initializeApp(firebaseConfig);
+          auth = getAuth(app);
+          db = getFirestore(app);
 
-    // Check for the provided custom auth token and sign in
-    if (initialAuthToken) {
-      await signInWithCustomToken(auth, initialAuthToken);
-    } else {
-      // Fallback to anonymous sign-in if no token is provided
-      await signInAnonymously(auth);
-    }
+        // This listener is the core of the authentication flow. It handles all UI state changes.
+        onAuthStateChanged(auth, updateUI);
+        
+        // Add direct click listeners to the buttons to bypass form submission.
+        signInBtn.addEventListener('click', () => handleAuthSubmit('signIn'));
+        createAccountBtn.addEventListener('click', () => handleAuthSubmit('createAccount'));
+        
+        signOutBtn.addEventListener('click', handleSignOut);
+        workoutForm.addEventListener('submit', handleFormSubmit);
 
-    // Set up the auth state listener to get the User Id
-    onAuthStateChanged(auth, (user) => {
-      if (user) {
-        userId = user.uid;
-        authInfoEl.textContent = `Signed in as: ${userId}`;
-        // Once authenticated, start listening for workouts
-        setupRealtimeListener();
-      } else {
-        // User is signed out, handle accordingly
-        authInfoEl.textContent = 'Signed out. Please refresh to sign in.';
-        workoutsList.innerHTML = '<p class="text-center text-gray-500">Please sign in to view your workouts.</p>';
-
-      }
-    });
-  } catch (e) {
-    console.error("Error initializing Firebase:", e);
-    authInfoEl.textContent = `Error initializing Firebase. Check console for details.`; 
-  }
+        //Use event delegation for the delete buttons.
+        workoutsList.addEventListener('click', (e) => {
+          if (e.target.classList.contains('delete-btn')) {
+            const workoutId = e.target.dataset.id;
+            handleDeleteWorkout(workoutId);
+          }
+        });
+} catch (e) {
+  console.error("Error initializing Firebase:", e);
+  authInfoEl.textContent = 'Error initializing Firebase. Check console for details';
+}
 };
+
 
 /**
  * Sets up a real-time listener to fetch and display workouts from Firestore.
  */
-
 const setupRealtimeListener = () => {
-  if (!userId) {
-    console.error("User ID not available.");
-    return;
-  }
-
-  const workoutsCollection = collection(db, `artifacts/${appId}/users/${userId}/workouts`);
-
-  //Use onSnapshot to listen for real-time changes
-  onSnapshot(workoutsCollection, (snapshot) => {
-    loadingSpinner.style.display = 'none';
-    workoutsList.innerHTML = ''; //Clear the current list
-
-    if (snapshot.empty) {
-      workoutsList.innerHTML = '<p class="text-center text-gray-500">No workouts logged yet. Add one above!</p>';
-      return;
+    if (!userId) {
+        console.error("User ID not available.");
+        return;
     }
 
-    snapshot.forEach((doc) => {
-      const workout = doc.data();
-      const workoutId = doc.id;
-      const workoutItem = document.createElement('div');
-      workoutItem.classList.add('bg-gray-50', 'rounded-xl', 'p-4', 'shadow-sm', 'flex', 'flex-col', 'md:items-center', 'justify-between', 'space-y-2', 'md:space-y-0');
+    const workoutsCollection = collection(db, `artifacts/${appId}/users/${userId}/workouts`);
 
-      //Format the workout data for display
-      const workoutHTML = `
-      <div>
-        <p class="text-lg font-semibold text-gray-800">${workout.exercise}</p>
-        <p class="text-sm text-gray-600">
-          <span class="font-medium">Sets:</span> ${workout.sets},
-          <span class="font-medium">Reps:</span> ${workout.reps},
-          <span class="font-medium">Weight:</span> ${workout.weight} lbs
-          </p>
-          <p class="text-xs text-gray-400 mt-1">
-          Logged on: ${new Date(workout.timestamp.seconds * 1000).toLocaleString()}
-          </p>
-      </div>
-      <button data-id="${workoutId}" class="delete-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition-colors shadow-md">
-      Delete
-      </button>
-      `;
-      workoutItem.innerHTML = workoutHTML;
-      workoutsList.appendChild(workoutItem);
+    onSnapshot(workoutsCollection, (snapshot) => {
+        workoutsList.innerHTML = ''; 
+
+        if (snapshot.empty) {
+            workoutsList.innerHTML = '<p class="text-center text-gray-500">No workouts logged yet. Add one above!</p>';
+            return;
+        }
+
+        snapshot.forEach((doc) => {
+            const workout = doc.data();
+            const workoutId = doc.id;
+            const workoutItem = document.createElement('div');
+            workoutItem.classList.add('bg-gray-50', 'rounded-xl', 'p-4', 'shadow-sm', 'flex', 'flex-col', 'md:flex-row', 'md:items-center', 'justify-between', 'space-y-2', 'md:space-y-0');
+
+            const timestamp = workout.timestamp ? workout.timestamp.toDate().toLocaleString() : 'N/A';
+
+            const workoutHTML = `
+            <div>
+                <p class="text-lg font-semibold text-gray-800">${workout.exercise}</p>
+                <p class="text-sm text-gray-600">
+                    <span class="font-medium">Sets:</span> ${workout.sets},
+                    <span class="font-medium">Reps:</span> ${workout.reps},
+                    <span class="font-medium">Weight:</span> ${workout.weight} lbs
+                </p>
+                <p class="text-xs text-gray-400 mt-1">
+                    Logged on: ${timestamp}
+                </p>
+            </div>
+            <button data-id="${workoutId}" class="delete-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition-colors shadow-md">
+                Delete
+            </button>
+            `;
+            workoutItem.innerHTML = workoutHTML;
+            workoutsList.appendChild(workoutItem);
+        });
     });
-  });
 };
 
 /**
@@ -117,74 +164,112 @@ const setupRealtimeListener = () => {
  * @param {Event} e - The form submission event.
  */
 const handleFormSubmit = async (e) => {
-  e.preventDefault();
+    e.preventDefault();
 
-  if (!userId) {
-    alert("Please wait for authentication to complete before logging a workout.");
-    return;
-  }
+    if (!userId) {
+        showMessage("Please sign in or create an account to log workouts.", 'error');
+        return;
+    }
 
-  //Get form values
-  const exercise = document.getElementById('exercise').value.trim();
-  const sets= parseint(document.getElementById('sets').value, 10);
-  const reps = parseInt(document.getElementById('reps').value, 10);
-  const weight = parseFloat(document.getElementById('weight').value);
+    const exercise = document.getElementById('exercise').value.trim();
+    const sets = parseInt(document.getElementById('sets').value, 10);
+    const reps = parseInt(document.getElementById('reps').value, 10);
+    const weight = parseFloat(document.getElementById('weight').value);
 
-  //Basic validation
-  if (!exercise || isNaN(sets) || isNaN(reps) || isNaN(weight)) {
-    alert("Please fill out all field with valid numbers.");
-    return;
-  }
+    if (!exercise || isNaN(sets) || isNaN(reps) || isNaN(weight)) {
+        showMessage("Please fill out all fields with valid numbers.", 'error');
+        return;
+    }
 
-  try {
-    //Add the new workout to Firestore
-    const docRef = await addDoc(collection(db, `artifacts/${appId}/users/${userId}/workouts`), {
-      exercise: exercise,
-      sets: sets,
-      reps: reps,
-      weight: weight,
-      timestamp: new Date()
-    });
+    try {
+        const docRef = await addDoc(collection(db, `artifacts/${appId}/users/${userId}/workouts`), {
+            exercise: exercise,
+            sets: sets,
+            reps: reps,
+            weight: weight,
+            timestamp: serverTimestamp()
+        });
 
-    console.log("Workout logged with ID:", docRef.id);
-    workoutForm.reset(); //Clear the form
-} catch (e) {
-  console.error("Error adding document: ", e);
-  alert("Failed to log workout. Check console for details.");
-}
+        console.log("Workout logged with ID:", docRef.id);
+        workoutForm.reset();
+        showMessage("Workout logged successfully!", 'success');
+    } catch (e) {
+        console.error("Error adding document: ", e);
+        showMessage("Failed to log workout. Check console for details.", 'error');
+    }
+};
+
+/**
+ * Handles the authentication form submission.
+ * @param {string} action - 'signIn' or 'createAccount'.
+ */
+const handleAuthSubmit = async (action) => {
+    const email = authEmailInput.value;
+    const password = authPasswordInput.value;
+
+    if (!email || !password) {
+        showMessage("Please enter both email and password.", 'error');
+        return;
+    }
+
+    try {
+        if (action === 'signIn') {
+            await signInWithEmailAndPassword(auth, email, password);
+            console.log("Signed in successfully.");
+            showMessage("Signed in successfully!", 'success');
+        } else {
+            await createUserWithEmailAndPassword(auth, email, password);
+            console.log("Account created successfully.");
+            showMessage("Account created and signed in successfully!", 'success');
+        }
+    } catch (e) {
+        console.error("Authentication error: ", e);
+        if (e.code === 'auth/email-already-in-use') {
+            showMessage("Email already in use. Please sign in instead.", 'error');
+        } else if (e.code === 'auth/invalid-email' || e.code === 'auth/user-not-found' || e.code === 'auth/wrong-password') {
+            showMessage("Invalid email or password.", 'error');
+        } else if (e.code === 'auth/weak-password') {
+            showMessage("Password is too weak. Please use at least 6 characters.", 'error');
+        } else {
+            showMessage(`Authentication failed: ${e.message}`, 'error');
+        }
+    }
 };
 
 /**
  * Handles the deletion of a workout.
  * @param {string} workoutId - The ID of the workout to delete.
  */
-
 const handleDeleteWorkout = async (workoutId) => {
-  if (!userId) {
-    console.error("User ID not available for deletion.");
-    return;
-  }
+    if (!userId) {
+        console.error("User ID not available for deletion.");
+        return;
+    }
 
-  try {
-    const docRef = doc(db, `artifacts/${appId}/users/${userId}/workouts`, workoutId);
-    await deleteDoc(docRef);
-    console.log("Workout deleted successfully.");
-  } catch (e) {
-    console.error("Error deleting document: ", e);
-    alert("Failed to delete workout. Check console for details.");
-  }
+    try {
+        const docRef = doc(db, `artifacts/${appId}/users/${userId}/workouts`, workoutId);
+        await deleteDoc(docRef);
+        console.log("Workout deleted successfully.");
+        showMessage("Workout deleted successfully.", 'success');
+    } catch (e) {
+        console.error("Error deleting document: ", e);
+        showMessage("Failed to delete workout. Check console for details.", 'error');
+    }
 };
 
-//Event listeners
-workoutForm.addEventListener('submit', handleFormSubmit);
+/**
+ * Handles the sign-out process.
+ */
+const handleSignOut = async () => {
+    try {
+        await signOut(auth);
+        showMessage("Signed out successfully!", 'success');
+        console.log("User signed out.");
+    } catch (e) {
+        console.error("Error signing out:", e);
+        showMessage("Failed to sign out. Check console for details.", 'error');
+    }
+};
 
-// User event delegation for the delete buttons since they are added dynamically
-workoutsList.addEventListener('click', (e) => {
-  if (e.target.classList.contains('delete-btn')) {
-    const workoutId = e.target.dataset.id;
-    handleDeleteWorkout(workoutId);
-  }
-});
-
-//Initialize the app on window load
+// Initialize the app on window load
 window.onload = initializeFirebase;
