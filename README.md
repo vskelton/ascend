@@ -48,6 +48,9 @@ ascend-main/
 ---
 
 ## Preview 📸
+- **Login Screen** ![Ascend Login Page](img/AscendLogin.png)
+- **Workout Screen** ![Ascend Workout Page](img/AscendWorkout.png)
+- **Progress Screen** ![Ascend Progress Chart](img/AscendProgess.png)
 
 ---
 
