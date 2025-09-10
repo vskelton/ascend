@@ -3,9 +3,13 @@
 Ascend is a lightweight web application that helps users track their exercises and visualize progress over time.
 Built with **HTML**, **JavaScript**, and **Tailwind CSS**, it provides a clean interface and an interactive line chart to monitor your fitness journey.
 If you would like to test the site please go to https://ascend-lac.vercel.app/ and use the following login information:
+
 **Login information**
+
 Username: user123@gmail.com
+
 Password: 123456
+
 **Please do not delete this user!!**
 
 ---
